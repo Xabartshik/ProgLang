@@ -2,13 +2,9 @@ from lib.grammarSolver import GrammarSolver
 
 
 
-# Множество нетерминальных символов
+# Данные для задачи 2а
 nonterminals_2a = {'S', 'A', 'B', 'C', 'D', 'F'}
-
-# Множество терминальных символов
 terminals_2a = {'a', 'b', 'c'}
-
-# Правила грамматики
 rules_2a = {
     'S': ['aaCFD'],
     'AD': ['D'],
@@ -19,36 +15,22 @@ rules_2a = {
     'Ab': ['bA'],
     'bCD': ['ε']
 }
-
-# Начальный символ
 start_symbol_2a = 'S'
 
-# Множество нетерминальных символов
+# Данные для задачи 2б
 nonterminals_2b = {'S', 'A', 'B'}
-
-# Множество терминальных символов
 terminals_2b = {'a', 'b', '1'}
-
-# Правила грамматики
 rules_2b = {
     'S': ['A1', 'B1'],
     'A': ['a', 'Ba'],
     'B': ['b', 'Bb', 'Ab']
 }
-
-# Начальный символ
 start_symbol_2b = 'S'
 
-# Тест для 2а
-print("Язык 2а (max_depth=3):")
-language_2a, is_infinite_2a = GrammarSolver.generate_language(rules_2a, nonterminals_2a, terminals_2a, start_symbol_2a, max_depth=10)
-for string in sorted(language_2a):
-    print(string)
-print(f"Бесконечный: {is_infinite_2a}")
+# Создание экземпляров GrammarSolver и определение типов
+solver_2a = GrammarSolver(rules_2a, nonterminals_2a, terminals_2a, start_symbol_2a)
+solver_2b = GrammarSolver(rules_2b, nonterminals_2b, terminals_2b, start_symbol_2b)
 
-# Тест для 2б
-print("\nЯзык 2б (max_depth=3):")
-language_2b, is_infinite_2b = GrammarSolver.generate_language(rules_2b, nonterminals_2b, terminals_2b, start_symbol_2b, max_depth=10)
-for string in sorted(language_2b):
-    print(string)
-print(f"Бесконечный: {is_infinite_2b}")
+# Вывод типов грамматик
+print("Тип грамматики для задачи 2а:", solver_2a.get_grammar_type())
+print("Тип грамматики для задачи 2б:", solver_2b.get_grammar_type())

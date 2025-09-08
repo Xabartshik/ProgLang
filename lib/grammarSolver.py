@@ -55,33 +55,47 @@ class GrammarSolver:
 
         return ["Вывод не найден"]
 
-    @staticmethod
-    def generate_language(rules, nonterminals, terminals, start_symbol='S', max_depth=3):
-        queue = deque([(start_symbol, 0, [start_symbol])])
-        visited = set([start_symbol])
-        languages = set()
+    def get_grammar_type(self) -> int:
+        if not self.rules:
+            return 0
 
-        is_infinite = any(nt in sum((r for r in rules.values()), []) for nt in nonterminals)
+        def is_right_linear():
+            for left, rights in self.rules.items():
+                if len(left) != 1 or left not in self.nonterminals:
+                    return False
+                for right in rights:
+                    if right == '':
+                        continue
+                    terminals_part = right[:-1] if right[-1] in self.nonterminals else right
+                    if any(c in self.nonterminals for c in terminals_part):
+                        return False
+            return True
 
-        while queue:
-            current, depth, path = queue.popleft()
-            if depth > max_depth:
-                continue
-            if all(c in terminals for c in current):
-                languages.add(current)
-                continue
+        def is_left_linear():
+            for left, rights in self.rules.items():
+                if len(left) != 1 or left not in self.nonterminals:
+                    return False
+                for right in rights:
+                    if right == '':
+                        continue
+                    terminals_part = right[1:] if right[0] in self.nonterminals else right
+                    if any(c in self.nonterminals for c in terminals_part):
+                        return False
+            return True
 
-            for left, rights in sorted(rules.items(), key=lambda x: len(x[0]), reverse=True):
-                pos = 0
-                while pos < len(current):
-                    if current.startswith(left, pos):
-                        for right in rights:
-                            new_current = current[:pos] + right + current[pos + len(left):]
-                            if new_current not in visited:
-                                visited.add(new_current)
-                                queue.append((new_current, depth + 1, path + [f"{left} -> {right}: {new_current}"]))
-                    pos += 1
+        if is_right_linear() or is_left_linear():
+            return 3
 
-        return languages, is_infinite
+        is_context_free = all(len(left) == 1 and left in self.nonterminals for left in self.rules)
+        if is_context_free:
+            return 2
 
+        is_context_sensitive = all(
+            len(left) > 0 and all(right == '' or len(right) >= 1 for right in rights)
+            for left, rights in self.rules.items()
+        )
+        if is_context_sensitive:
+            return 1
+
+        return 0
 
