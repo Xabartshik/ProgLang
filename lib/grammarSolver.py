@@ -91,7 +91,11 @@ class GrammarSolver:
             return 2
 
         is_context_sensitive = all(
-            len(left) > 0 and all(right == '' or len(right) >= 1 for right in rights)
+            len(left) > 0 and all(
+                (right == '' and left == self.start) or
+                (right != '' and len(right) >= len(left))
+                for right in rights
+            )
             for left, rights in self.rules.items()
         )
         if is_context_sensitive:
