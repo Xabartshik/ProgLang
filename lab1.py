@@ -25,8 +25,3 @@ term_1b = {'a', 'b', 'c'}
 solver_1b = GrammarSolver(rules_1b, nonterm_1b, term_1b)
 print("\nВывод для 1b 'aaabbbccc':")
 print('\n'.join(solver_1b.derive_string('aaabbbccc')))
-rules = {'S': ['aaCFD', 'b'], 'A': ['a']}
-nonterm = {'S', 'A'}
-term = {'a', 'b'}
-grammar = GrammarSolver(rules, nonterm, term)
-print(GrammarSolver.generate_language(grammar, 'S'))
