@@ -324,11 +324,10 @@ class GrammarSolver:
         from collections import deque
         queue = deque([(self.start, [self.start])])
         visited = set([self.start])
-        target_symbols = set(target)
-        non_terminal_symbols = self.terminals - target_symbols
-        if non_terminal_symbols:
-            return [
-                f"Ошибка ЯЗЫК НЕ ТОТ: в целевой цепочке '{target}' отсутствуют символы из алфавита терминалов: {sorted(non_terminal_symbols)}"]
+
+        # Проверяем, что целевая строка состоит только из терминалов
+        if not self._can_decompose_to_terminals(target):
+            return [f"Ошибка: строка '{target}' не может быть разложена на терминалы грамматики"]
 
         max_iterations = 50000
         iteration = 0
@@ -446,16 +445,43 @@ class GrammarSolver:
 
     def _contains_only_terminals(self, string: str) -> bool:
         """
-        Проверяет, содержит ли строка только терминальные символы.
+        ИСПРАВЛЕННАЯ версия: правильно работает с многосимвольными терминалами.
+        Проверяет, можно ли разложить строку полностью на терминалы.
         """
         if not string:
             return True
 
+        # Сначала проверяем нетерминалы (многосимвольные первыми)
         for nonterminal in sorted(self.nonterminals, key=len, reverse=True):
             if nonterminal in string:
                 return False
 
-        return all(char in self.terminals for char in string)
+        # Затем пытаемся разложить строку на терминалы
+        return self._can_decompose_to_terminals(string)
+
+    def _can_decompose_to_terminals(self, string: str) -> bool:
+        """
+        Проверяет, можно ли разложить строку на терминалы используя жадный алгоритм.
+        Сначала пытается использовать самые длинные терминалы.
+        """
+        if not string:
+            return True
+
+        # Сортируем терминалы по длине (длинные первыми)
+        sorted_terminals = sorted(self.terminals - {'ε'}, key=len, reverse=True)
+
+        # Рекурсивно пытаемся разложить строку
+        def decompose(s, pos=0):
+            if pos >= len(s):
+                return True
+
+            for terminal in sorted_terminals:
+                if s[pos:].startswith(terminal):
+                    if decompose(s, pos + len(terminal)):
+                        return True
+            return False
+
+        return decompose(string)
 
     def _apply_all_rules(self, current_form: str) -> List[str]:
         """
@@ -575,13 +601,37 @@ class GrammarSolver:
         }
         return type_names.get(type_num, "Неизвестный тип")
 
+    def _extract_terminals_from_string(self, s: str) -> List[str]:
+        """
+        Извлекает терминалы из строки, учитывая многосимвольные терминалы.
+        """
+        if not s:
+            return []
+
+        result = []
+        pos = 0
+        sorted_terminals = sorted(self.terminals - {'ε'}, key=len, reverse=True)
+
+        while pos < len(s):
+            found = False
+            for terminal in sorted_terminals:
+                if s[pos:].startswith(terminal):
+                    result.append(terminal)
+                    pos += len(terminal)
+                    found = True
+                    break
+            if not found:
+                pos += 1  # Пропускаем неизвестный символ
+
+        return result
+
     def has_all_terminals(self, string: str) -> bool:
         """
         Проверяет, содержит ли цепочка все терминальные символы из алфавита.
         """
-        string_set = set(string)
+        extracted_terminals = set(self._extract_terminals_from_string(string))
         clean_terminals = self.terminals - {'ε'}
-        return all(t in string_set for t in clean_terminals)
+        return all(t in extracted_terminals for t in clean_terminals)
 
     def generate_language_with_all_terminals(self, method: str = 'exhaustive', max_length: int = 10,
                                              max_strings: int = 100, max_depth: int = 15) -> List[str]:
