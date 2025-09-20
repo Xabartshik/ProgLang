@@ -86,6 +86,32 @@ try:
     #     'expression': ['identifier', 'constant']
     # }
     # Правила и алфавиты для do-while
+    # nonterminals_8 = {'do-while-statement', 'statement', 'statements', 'single_statement', 'expression'}
+    # terminals_8 = {'do', 'while', '(', ')', ';', '{', '}', 'identifier', 'constant'}
+    # start_symbol_8 = 'do-while-statement'
+    #
+    # solver_8 = GrammarSolver(
+    #     rules_8,
+    #     nonterminals=nonterminals_8,
+    #     terminals=terminals_8,
+    #     start_symbol=start_symbol_8
+    # )
+    #
+    # # Генерация строк языка
+    # lang8 = solver_8.generate_language_with_spaces_support(
+    #     max_length=100,
+    #     max_strings=200,
+    #     max_depth=100,
+    #     require_all_terminals=True
+    # )
+    #
+    # print("\nПримеры строк языка:")
+    # for i, s in enumerate(lang8, 1):
+    #     display = s if s else 'ε'
+    #     print(f" {i:2d}. '{display}' (длина: {len(s)})")
+    #
+    # print("\n=== ЗАВЕРШЕНИЕ LAB3 ===")
+    # print("=" * 60)
     rules_8 = {
         'D': ['dSw(E);'],  # D - do-while-statement, d - do, w - while
         'S': ['{T}', 's'],  # S - statement, T - statements, s - single_statement
