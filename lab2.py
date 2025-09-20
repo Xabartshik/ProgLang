@@ -44,7 +44,7 @@ try:
     print("=" * 60)
 
     # Данные для задачи 2а
-    nonterminals_2a = {'S', 'A', 'B', 'C', 'D', 'F', 'AD', 'AB', 'Cb', 'CB', 'Ab', 'bCD'}
+    nonterminals_2a = {'S', 'A', 'B', 'C', 'D', 'F'}
     terminals_2a = {'a', 'b'}
     rules_2a = {
         'S': ['aaCFD'],
@@ -80,7 +80,7 @@ try:
     desc2a = solver_2a.generate_description()
     print(f"Описание языка: L(G2a) = {{{desc2a}}}")
 
-    lang2a = solver_2a.generate_language_with_all_terminals(method='exhaustive', max_length=20, max_strings=50)
+    lang2a = solver_2a.generate_language(require_all_terminals=True, method='exhaustive', max_length=20, max_strings=50)
     print(f"\nНайдено строк языка: {len(lang2a)}")
     print("Примеры строк:")
     for i, s in enumerate(lang2a, 1):
@@ -95,7 +95,7 @@ try:
     desc2b = solver_2b.generate_description()
     print(f"Описание языка: L(G2b) = {{{desc2b}}}")
 
-    lang2b = solver_2b.generate_language_with_all_terminals(method='exhaustive', max_length=10, max_strings=20)
+    lang2b = solver_2b.generate_language(require_all_terminals=True, method='exhaustive', max_length=10, max_strings=20)
     print(f"\nНайдено строк языка: {len(lang2b)}")
     print("Примеры строк:")
     for i, s in enumerate(lang2b, 1):
@@ -122,7 +122,7 @@ try:
     print(f"Тип грамматики: {grammar_3b.get_grammar_type_name()}")
 
     # Примеры строк языка
-    strings_3b = grammar_3b.generate_language_with_all_terminals(method='exhaustive', max_length=12, max_strings=15)
+    strings_3b = grammar_3b.generate_language(require_all_terminals=True, method='exhaustive', max_length=12, max_strings=15)
     print(f"\nНайдено строк языка: {len(strings_3b)}")
     print("Примеры строк языка:")
     for i, s in enumerate(strings_3b, 1):
