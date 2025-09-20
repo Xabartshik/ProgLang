@@ -77,17 +77,25 @@ try:
     print("Генерация языка do-while-операторов")
     print("-" * 40)
 
+    # # Правила и алфавиты для do-while
+    # rules_8 = {
+    #     'do-while-statement': ['do statement while ( expression ) ;'],
+    #     'statement': ['{ statements }', 'single_statement'],
+    #     'statements': ['statement', 'statement statements'],
+    #     'single_statement': ['expression ;'],
+    #     'expression': ['identifier', 'constant']
+    # }
     # Правила и алфавиты для do-while
     rules_8 = {
-        'do-while-statement': ['do statement while ( expression ) ;'],
-        'statement': ['{ statements }', 'single_statement'],
-        'statements': ['statement', 'statement statements'],
-        'single_statement': ['expression ;'],
-        'expression': ['identifier', 'constant']
+        'D': ['dSw(E);'],  # D - do-while-statement, d - do, w - while
+        'S': ['{T}', 's'],  # S - statement, T - statements, s - single_statement
+        'T': ['S', 'ST'],
+        's': ['E;'],
+        'E': ['i', 'c']  # E - expression, i - identifier, c - constant
     }
-    nonterminals_8 = {'do-while-statement', 'statement', 'statements', 'single_statement', 'expression'}
-    terminals_8 = {'do', 'while', '(', ')', ';', '{', '}', 'identifier', 'constant'}
-    start_symbol_8 = 'do-while-statement'
+    nonterminals_8 = {'D', 'S', 'T', 's', 'E'}
+    terminals_8 = {'d', 'w', '(', ')', ';', '{', '}', 'i', 'c'}
+    start_symbol_8 = 'D'
 
     solver_8 = GrammarSolver(
         rules_8,
@@ -97,15 +105,41 @@ try:
     )
 
     # Генерация строк языка
-    lang8 = solver_8.generate_language_with_spaces_support(
+    lang8 = solver_8.generate_language(
         max_length=100,
-        max_strings=200,
-        max_depth=100,
+        max_strings=10,
+        max_depth=10,
         require_all_terminals=True
     )
 
+    # Обратная замена символов на исходные выражения
+    symbol_to_expression = {
+        'D': ' do-while-statement ',
+        'S': ' statement ',
+        'T': ' statements ',
+        's': ' single_statement ',
+        'E': ' expression ',
+        'd': ' do ',
+        'w': ' while ',
+        'i': ' identifier ',
+        'c': ' constant ',
+        '(': '(',
+        ')': ')',
+        ';': ';',
+        '{': '{',
+        '}': '}'
+    }
+
+    # Замена символов в сгенерированных строках
+    restored_lang8 = []
+    for s in lang8:
+        restored = ''
+        for char in s:
+            restored += symbol_to_expression[char]
+        restored_lang8.append(restored.strip())
+
     print("\nПримеры строк языка:")
-    for i, s in enumerate(lang8, 1):
+    for i, s in enumerate(restored_lang8, 1):
         display = s if s else 'ε'
         print(f" {i:2d}. '{display}' (длина: {len(s)})")
 
