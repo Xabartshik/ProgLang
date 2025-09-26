@@ -1,6 +1,7 @@
 import sys
 import datetime
-from typing import List, Dict, Set, Optional
+
+from lib.CFGParser import CFGParser
 
 
 class FileLogger:
@@ -33,205 +34,9 @@ class FileLogger:
         sys.stdout = self.original_stdout
 
 
-class CFGParser:
-    def __init__(self, rules: Dict[str, List[str]], nonterminals: Optional[Set[str]] = None,
-                 terminals: Optional[Set[str]] = None, start_symbol: str = 'S'):
-        """
-        :param rules: Словарь продукций: ключ - левая часть (str), значение - список правых частей (str).
-        :param nonterminals: Множество нетерминальных символов (необязательно - будет определено автоматически).
-        :param terminals: Множество терминальных символов (необязательно - будет определено автоматически).
-        :param start_symbol: Стартовый символ.
-        """
-        self.rules = rules
-        self.start_symbol = start_symbol
-
-        if nonterminals is None:
-            self.nonterminals = set(rules.keys())
-        else:
-            self.nonterminals = nonterminals
-
-        if terminals is None:
-            self.terminals = set()
-            for productions in rules.values():
-                for prod in productions:
-                    for symbol in prod:
-                        if symbol not in self.nonterminals:
-                            self.terminals.add(symbol)
-        else:
-            self.terminals = terminals
-
-    def count_terminals(self, string: str) -> int:
-        """Подсчитывает количество терминальных символов в строке."""
-        return sum(1 for c in string if c in self.terminals)
-
-    def is_possible_prefix(self, current: str, target: str) -> bool:
-        """
-        Проверяет, может ли текущая строка (без нетерминалов) быть префиксом целевой.
-        """
-        current_clean = ''.join(c for c in current if c in self.terminals)
-        if len(current_clean) > len(target):
-            return False
-        return current_clean == target[:len(current_clean)]
-
-    def generate_parse_trees(self, target: str, current_string: Optional[str] = None,
-                             derivation: Optional[List[str]] = None) -> List[List[str]]:
-        """
-        Генерирует все возможные деревья вывода для целевой цепочки.
-        :param target: Целевая строка.
-        :param current_string: Текущая строка на этапе вывода (по умолчанию start_symbol).
-        :param derivation: Список шагов вывода (для построения дерева).
-        """
-        if current_string is None:
-            current_string = self.start_symbol
-
-        if derivation is None:
-            derivation = [f"Start: {self.start_symbol}"]
-
-        # Базовый случай: если текущая строка совпадает с целевой и не осталось нетерминалов
-        if current_string == target and all(c in self.terminals for c in current_string):
-            return [derivation]
-
-        # Проверяем, возможна ли целевая строка. Условие оптимизации - если строка не является префиксом,
-        # получить из нее вряд-ли что-то получится
-        if not self.is_possible_prefix(current_string, target):
-            return []
-
-        # Проверяем, не слишком ли много терминалов. Условие оптимизации.
-        # Отсекает продолжение изучения
-        if self.count_terminals(current_string) > len(target):
-            return []
-
-        results = []
-
-        # Перебираем все позиции в текущей строке
-        i = 0
-        while i < len(current_string):
-            symbol = current_string[i]
-            if symbol in self.nonterminals:
-                # Применяем каждое правило для этого нетерминала
-                for prod in self.rules.get(symbol, []):
-                    # Заменяем символ на продукцию (пустая строка для ε)
-                    new_string = current_string[:i] + prod + current_string[i + 1:]
-                    step = f"{symbol} -> {prod if prod else 'ε'} at pos {i}"
-                    results.extend(self.generate_parse_trees(target, new_string, derivation + [step]))
-            i += 1
-
-        return results  # Явный возврат списка
-
-    def print_parse_trees(self, target: str):
-        """
-        Выводит все деревья вывода для заданной цепочки в консоль и лог-файл.
-        """
-        trees = self.generate_parse_trees(target)
-        if not trees:
-            print(f"Цепочка '{target}' не может быть выведена по данной грамматикой.")
-            return
-
-        print(f"\nВсе возможные деревья вывода для цепочки '{target}':")
-        for i, tree in enumerate(trees, 1):
-            print(f"\nДерево {i}:")
-            for step in tree:
-                print(step)
-
-    def is_right_linear(self) -> bool:
-        """
-        Проверяет, является ли грамматика праволинейной.
-        :return: True, если грамматика праволинейная, иначе False.
-        """
-        for nonterminal in self.rules:
-            for prod in self.rules[nonterminal]:
-                if prod == '':  # ε-правило допустимо
-                    continue
-                # Проверяем, что правило вида a или aB (a - терминал, B - нетерминал или пусто)
-                if len(prod) > 2 or (len(prod) == 2 and (prod[0] not in self.terminals or prod[1] not in self.nonterminals)):
-                    return False
-                if len(prod) == 1 and prod[0] not in self.terminals:
-                    return False
-        return True
-
-    def to_left_linear_grammar(self) -> Dict[str, List[str]]:
-        """
-        Преобразует праволинейную грамматику в эквивалентную леволинейную, допускающую детерминированный разбор.
-        :return: Словарь правил леволинейной грамматики.
-        """
-        if not self.is_right_linear():
-            print("Грамматика не является праволинейной. Преобразование невозможно.")
-            return {}
-
-        # Шаг 1: Построить НКА из праволинейной грамматики
-        nfa_states = self.nonterminals | {'F'}  # Добавляем финальное состояние F
-        nfa_transitions = {state: {} for state in nfa_states}
-        for nonterminal in self.rules:
-            for prod in self.rules[nonterminal]:
-                if prod == '':  # ε-переход в финальное состояние
-                    nfa_transitions[nonterminal].setdefault('', set()).add('F')
-                elif len(prod) == 1:  # a -> F
-                    nfa_transitions[nonterminal].setdefault(prod[0], set()).add('F')
-                else:  # aB
-                    nfa_transitions[nonterminal].setdefault(prod[0], set()).add(prod[1])
-
-        # Шаг 2: Преобразование НКА в ДКА
-        dfa_states = set()
-        dfa_transitions = {}
-        state_queue = [frozenset([self.start_symbol])]
-        dfa_states.add(frozenset([self.start_symbol]))
-        final_states = set()
-
-        while state_queue:
-            current_state_set = state_queue.pop(0)
-            dfa_transitions[current_state_set] = {}
-
-            # Для каждого терминала проверяем переходы
-            for terminal in self.terminals:
-                next_states = set()
-                for state in current_state_set:
-                    if terminal in nfa_transitions[state]:
-                        next_states.update(nfa_transitions[state][terminal])
-                if next_states:
-                    next_state_set = frozenset(next_states)
-                    if next_state_set not in dfa_states:
-                        dfa_states.add(next_state_set)
-                        state_queue.append(next_state_set)
-                    dfa_transitions[current_state_set][terminal] = next_state_set
-
-            # Проверяем ε-переходы (в финальное состояние)
-            if 'F' in current_state_set:
-                final_states.add(current_state_set)
-
-        # Шаг 3: Построить леволинейную грамматику из ДКА
-        left_linear_rules = {}
-        state_to_nonterminal = {state: f"Q{index}" for index, state in enumerate(dfa_states)}
-        state_to_nonterminal[frozenset([self.start_symbol])] = self.start_symbol
-
-        for state in dfa_states:
-            nonterminal = state_to_nonterminal[state]
-            left_linear_rules[nonterminal] = []
-            # Добавляем правила для переходов
-            if state in dfa_transitions:
-                for terminal, next_state in dfa_transitions[state].items():
-                    next_nonterminal = state_to_nonterminal[next_state]
-                    left_linear_rules[nonterminal].append(f"{next_nonterminal}{terminal}")
-            # Если состояние финальное, добавляем ε-продукцию
-            if state in final_states:
-                left_linear_rules[nonterminal].append('')
-
-        return left_linear_rules
-
-    def print_grammar(self):
-        """
-        Выводит грамматику в читаемом виде.
-        """
-        print(f"Стартовый символ: {self.start_symbol}")
-        print(f"Нетерминалы: {sorted(self.nonterminals)}")
-        print(f"Терминалы: {sorted(self.terminals)}")
-        print("Правила грамматики:")
-        for left, rights in self.rules.items():
-            rights_str = " | ".join(r if r != 'ε' else 'ε' for r in rights)
-            print(f"  {left} -> {rights_str}")
-        print()
 
 # Запускаем логирование
-logger = FileLogger("parse_trees.log")
+logger = FileLogger("lab4_results.txt")
 sys.stdout = logger
 
 try:
@@ -293,14 +98,52 @@ try:
     print("Исходная праволинейная грамматика:")
     parser_b.print_grammar()
 
-    left_linear_b = parser_b.to_left_linear_grammar()
+    parser_b.rules = parser_b.to_left_linear_grammar()
     parser_b.print_grammar()
 
     # Тестируем деревья вывода для цепочки
     target_string_b = "ab$"
     parser_b.print_parse_trees(target_string_b)
 
-    print("\n=== ЗАВЕРШЕНИЕ ГЕНЕРАЦИИ ===")
+
+    print("ГЕНЕРАЦИЯ ДЕРЕВЬЕВ ВЫВОДА И ПРЕОБРАЗОВАНИЕ ГРАММАТИК")
+    print("=" * 60)
+
+    rules_g1 = {
+        'S': ['S1', 'A0'],
+        'A': ['A1', '0']
+    }
+    terminals_g1 = {'0', '1'}
+    nonterminals_g1 = {'S', 'A'}
+    parser_g1 = CFGParser(rules_g1, nonterminals_g1, terminals_g1)
+
+    rules_g2 = {
+        'S': ['A1', 'B0', 'E1'],
+        'A': ['S1'],
+        'B': ['C1', 'D1'],
+        'C': ['0'],
+        'D': ['B1'],
+        'E': ['E0', '1']
+    }
+    terminals_g2 = {'0', '1'}
+    nonterminals_g2 = {'S', 'A', 'B', 'C', 'D', 'E'}
+    parser_g2 = CFGParser(rules_g2, nonterminals_g2, terminals_g2)
+
+    print("\n=== Задача 12 ===")
+    print("Грамматика G1:")
+    parser_g1.print_grammar_nice(rules_g1, "Леволинейная грамматика G1")
+
+    print("\nГрамматика G2:")
+    parser_g2.print_grammar_nice(rules_g2, "Леволинейная грамматика G2")
+
+    parser_g1.rules = parser_g1.to_right_linear_grammar()
+    parser_g1.print_grammar_nice(parser_g1.rules, "Праволинейная грамматика G1")
+
+    parser_g2.rules = parser_g2.to_right_linear_grammar()
+    parser_g2.print_grammar_nice(parser_g2.rules, "Праволинейная грамматика G2")
+
+
+    print("\n=== ЗАВЕРШЕНИЕ ===")
     print("=" * 60)
 
 finally:
