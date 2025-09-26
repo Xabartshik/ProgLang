@@ -64,7 +64,7 @@ try:
     solver_6_control.print_grammar()
 
     # Упрощаем грамматику
-    solver_6.simplify_grammar()
+    solver_6.remove_unreachable_symbols()
     print("\nУпрощенная грамматика:")
     solver_6.print_grammar()
 

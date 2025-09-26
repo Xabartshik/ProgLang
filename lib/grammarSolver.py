@@ -1561,7 +1561,6 @@ class GrammarSolver:
 
         self.remove_unit_productions()
         self.remove_unreachable_symbols()
-        # Применяем алгоритмы в правильном порядке
         self.eliminate_cycles()
 
         # self.remove_epsilon_rules()
