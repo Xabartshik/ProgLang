@@ -2,6 +2,57 @@ from collections import defaultdict, deque
 
 from lib.CFGParser import Grammar
 
+# --- ДОБАВИТЬ в lab4.py рядом с импортами ---
+from dataclasses import dataclass
+
+@dataclass
+class Node:
+    sym: str
+    children: list
+
+def build_tree_from_left_derivation(g, rule_path):
+    root = Node(g.start_symbol, [])
+    form_syms = [g.start_symbol]
+    form_nodes = [root]
+
+    for nt, prod in rule_path:
+        left_idx = next(i for i, s in enumerate(form_syms) if s in g.nonterminals)
+        assert form_syms[left_idx] == nt, "Некорректный путь левого вывода"
+
+        if len(prod) == 0:
+            # визуализируем ε, но НЕ добавляем его в выравнивающий список узлов
+            form_nodes[left_idx].children = [Node('ε', [])]
+            # удаляем S из обоих выравнивающих списков
+            form_syms  = form_syms[:left_idx]  + form_syms[left_idx+1:]
+            form_nodes = form_nodes[:left_idx] + form_nodes[left_idx+1:]
+        else:
+            child_nodes = [Node(s, []) for s in prod]
+            form_nodes[left_idx].children = child_nodes
+            # поддерживаем строгую синхронизацию списков
+            form_syms  = form_syms[:left_idx]  + prod        + form_syms[left_idx+1:]
+            form_nodes = form_nodes[:left_idx] + child_nodes + form_nodes[left_idx+1:]
+
+    return root
+
+
+def print_tree_ascii(root):
+    """Печатает дерево в стиле:
+    S
+    ├─ a
+    └─ S
+    """
+    def _print(node, prefix, is_last):
+        connector = "└─ " if is_last else "├─ "
+        print(prefix + connector + node.sym)
+        new_prefix = prefix + ("   " if is_last else "│  ")
+        for i, ch in enumerate(node.children):
+            _print(ch, new_prefix, i == len(node.children) - 1)
+
+    # корень без коннектора
+    print(root.sym)
+    for i, ch in enumerate(root.children):
+        _print(ch, "", i == len(root.children) - 1)
+
 
 def reconstruct_derivation(g, rule_path, tokens):
     """
@@ -46,7 +97,10 @@ derivations = g9.all_left_derivations(tokens_9)
 for idx, rule_path in enumerate(derivations, 1):
     print(f"\nВывод {idx}:")
     forms = reconstruct_derivation(g9, rule_path, tokens_9)
-    print(" => ".join(forms))
+    print(" => ".join(forms))      # как было
+    print("Дерево вывода:")        # новый блок
+    tree = build_tree_from_left_derivation(g9, rule_path)
+    print_tree_ascii(tree)
 
 nonterminals_a = {'S', 'B', 'C'}
 terminals_a = {'0', '1', '⊥'}
