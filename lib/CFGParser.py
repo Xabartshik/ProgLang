@@ -1,5 +1,8 @@
 from collections import defaultdict, deque
 
+import numpy as np
+from graphviz import Digraph
+
 
 class DFA:
     def __init__(self):
@@ -997,6 +1000,209 @@ class Grammar:
 
         return inter_grammar, inter_dfa
 
+    def build_state_diagram(self):
+        """
+        Построить диаграмму состояний для леволинейной грамматики
+
+        Алгоритм из методического пособия:
+        1. Создаём состояния для каждого нетерминала + начальное состояние H
+        2. Для правил W → t: дуга H → W с меткой t
+        3. Для правил W → Vt: дуга V → W с меткой t
+        """
+        if not self.is_left_linear():
+            raise ValueError("Диаграмма состояний строится только для леволинейных грамматик")
+
+        ds = StateDiagram()
+
+        # Создаём состояния
+        start_state = 'H'  # Начальное состояние
+        ds.set_start_state(start_state)
+
+        for nt in self.nonterminals:
+            ds.add_state(nt)
+
+        # Начальный символ грамматики является финальным состоянием
+        ds.add_final_state(self.start_symbol)
+
+        # Анализируем продукции и строим переходы
+        for lhs, rhslist in self.productions.items():
+            for rhs in rhslist:
+                if len(rhs) == 1 and rhs[0] in self.terminals:
+                    # Правило вида W → t
+                    # Дуга H → W с меткой t
+                    ds.add_transition(start_state, rhs[0], lhs)
+
+                elif len(rhs) == 2 and rhs[0] in self.nonterminals and rhs[1] in self.terminals:
+                    # Правило вида W → Vt
+                    # Дуга V → W с меткой t
+                    ds.add_transition(rhs[0], rhs[1], lhs)
+
+        return ds
+
+    def build_parsing_table(self):
+        """
+        Построить таблицу свёрток для леволинейной грамматики
+        Строки - нетерминалы, столбцы - терминалы
+        Значение - к какому нетерминалу свернуть пару (нетерминал, терминал)
+        """
+        if not self.is_left_linear():
+            raise ValueError("Таблица свёрток строится только для леволинейных грамматик")
+
+        table = {}
+
+        # Инициализируем таблицу
+        for nt in self.nonterminals:
+            table[nt] = {}
+            for t in self.terminals:
+                table[nt][t] = None  # Означает отсутствие свёртки
+
+        # Заполняем таблицу на основе продукций
+        for lhs, rhslist in self.productions.items():
+            for rhs in rhslist:
+                if len(rhs) == 2 and rhs[0] in self.nonterminals and rhs[1] in self.terminals:
+                    # Правило вида W → Vt
+                    # В ячейку (V, t) помещаем W
+                    V, t = rhs[0], rhs[1]
+                    if table[V][t] is not None:
+                        print(f"Предупреждение: конфликт свёртки в ({V}, {t}): {table[V][t]} vs {lhs}")
+                    table[V][t] = lhs
+
+        return table
+
+    def display_parsing_table(self):
+        """Вывести таблицу свёрток"""
+        table = self.build_parsing_table()
+
+        print("Таблица свёрток:")
+        print("\nСтроки - нетерминалы, столбцы - терминалы")
+        print("Значение - к какому нетерминалу свернуть пару (строка, столбец)")
+
+        # Заголовок
+        terminals_sorted = sorted(self.terminals)
+        nonterminals_sorted = sorted(self.nonterminals)
+
+        print("\n      ", end="")
+        for t in terminals_sorted:
+            print(f"{t:>4}", end="")
+        print()
+
+        print("    " + "-" * (4 * len(terminals_sorted) + 2))
+
+        # Строки таблицы
+        for nt in nonterminals_sorted:
+            print(f"{nt:>4} |", end="")
+            for t in terminals_sorted:
+                value = table[nt][t] if table[nt][t] is not None else "-"
+                print(f"{value:>4}", end="")
+            print()
+
+    def parse_leftlinear(self, input_string):
+        """
+        Разбор цепочки по леволинейной грамматике с использованием алгоритма свёрток
+
+        Алгоритм:
+        1. Первый символ заменяем нетерминалом A (для правила A → a₁)
+        2. Затем многократно: полученный нетерминал A и следующий терминал aᵢ
+           заменяем нетерминалом B (для правила B → Aaᵢ)
+        """
+        if not self.is_left_linear():
+            raise ValueError("Разбор доступен только для леволинейных грамматик")
+
+        if not input_string:
+            return {"accepted": False, "reason": "Пустая строка"}
+
+        table = self.build_parsing_table()
+
+        # Шаг 1: первый символ
+        first_symbol = input_string[0]
+
+        # Ищем правило вида W → first_symbol
+        current_nonterminal = None
+        for lhs, rhslist in self.productions.items():
+            for rhs in rhslist:
+                if len(rhs) == 1 and rhs[0] == first_symbol:
+                    current_nonterminal = lhs
+                    break
+            if current_nonterminal:
+                break
+
+        if not current_nonterminal:
+            return {"accepted": False, "reason": f"Нет правила для первого символа '{first_symbol}'"}
+
+        path = [f"'{first_symbol}' → {current_nonterminal}"]
+
+        # Шаг 2: обрабатываем остальные символы
+        for i in range(1, len(input_string)):
+            symbol = input_string[i]
+
+            # Ищем свёртку (current_nonterminal, symbol)
+            next_nonterminal = table.get(current_nonterminal, {}).get(symbol)
+
+            if next_nonterminal is None:
+                return {
+                    "accepted": False,
+                    "reason": f"Нет свёртки для ({current_nonterminal}, '{symbol}') в позиции {i}"
+                }
+
+            path.append(f"({current_nonterminal}, '{symbol}') → {next_nonterminal}")
+            current_nonterminal = next_nonterminal
+
+        # Шаг 3: проверяем финальное состояние
+        if current_nonterminal == self.start_symbol:
+            return {"accepted": True, "path": path, "final_nonterminal": current_nonterminal}
+        else:
+            return {
+                "accepted": False,
+                "reason": f"Финальное состояние {current_nonterminal} ≠ {self.start_symbol}"
+            }
+
+    def analyze_language_description(self):
+        """Анализ и описание языка, порождаемого грамматикой"""
+        print("Анализ языка:")
+
+        if self.is_left_linear():
+            print("- Грамматика леволинейная (регулярная)")
+        elif self.is_right_linear():
+            print("- Грамматика праволинейная (регулярная)")
+        else:
+            print("- Грамматика не является регулярной")
+
+        print(f"- Алфавит: {{{', '.join(sorted(self.terminals))}}}")
+        print(f"- Нетерминалы: {{{', '.join(sorted(self.nonterminals))}}}")
+        print(f"- Стартовый символ: {self.start_symbol}")
+
+        # Попробуем определить структуру языка
+        samples = self.generate_strings(6)
+
+        if samples:
+            print(f"\nПримеры цепочек языка (до 6 символов): {samples[:10]}")
+
+            # Анализируем структуру
+            has_empty = '' in samples
+            min_len = min(len(s) for s in samples if s) if samples and any(s for s in samples) else 0
+            max_len_shown = max(len(s) for s in samples if len(s) <= 6) if samples else 0
+
+            print(f"- Содержит пустую строку: {'Да' if has_empty else 'Нет'}")
+            if samples and any(s for s in samples):
+                print(f"- Минимальная длина непустых цепочек: {min_len}")
+
+            # Группируем по префиксам/суффиксам
+            prefixes = set()
+            suffixes = set()
+            for s in samples:
+                if len(s) >= 1:
+                    prefixes.add(s[0])
+                if len(s) >= 1:
+                    suffixes.add(s[-1])
+
+            if prefixes:
+                print(f"- Возможные первые символы: {{{', '.join(sorted(prefixes))}}}")
+            if suffixes:
+                print(f"- Возможные последние символы: {{{', '.join(sorted(suffixes))}}}")
+
+        else:
+            print("\nЯзык пуст или не удалось сгенерировать примеры")
+
 # def intersect_dfa_readable(dfa1, dfa2):
 #     """Пересечение DFA с читаемыми именами состояний"""
 #     if dfa1.alphabet != dfa2.alphabet:
@@ -1105,3 +1311,295 @@ def intersect_dfa_readable(dfa1, dfa2):
         dfa.transitions[(state_name[(cur1, cur2)], sym)] = state_name[(n1, n2)]
 
     return dfa
+
+# #########################################################################################################################
+
+
+# Дополнительные методы для CFGParser.py (добавить в класс Grammar)
+
+class StateDiagram:
+    """Класс для представления диаграммы состояний"""
+
+    def __init__(self):
+        self.states = set()
+        self.start_state = None
+        self.final_states = set()
+        self.transitions = {}  # (state, symbol) -> next_state
+
+    def add_state(self, state):
+        """Добавить состояние"""
+        self.states.add(state)
+
+    def set_start_state(self, state):
+        """Установить начальное состояние"""
+        self.start_state = state
+        self.states.add(state)
+
+    def add_final_state(self, state):
+        """Добавить финальное состояние"""
+        self.final_states.add(state)
+        self.states.add(state)
+
+    def add_transition(self, from_state, symbol, to_state):
+        """Добавить переход"""
+        self.states.add(from_state)
+        self.states.add(to_state)
+        self.transitions[(from_state, symbol)] = to_state
+
+    def display(self):
+        """Вывести диаграмму состояний"""
+        print("Диаграмма состояний:")
+        print(f"Состояния: {{{', '.join(sorted(self.states))}}}")
+        print(f"Начальное состояние: {self.start_state}")
+        print(f"Финальные состояния: {{{', '.join(sorted(self.final_states))}}}")
+        print("Переходы:")
+
+        # Группируем переходы по состояниям
+        from_states = {}
+        for (from_state, symbol), to_state in self.transitions.items():
+            if from_state not in from_states:
+                from_states[from_state] = []
+            from_states[from_state].append((symbol, to_state))
+
+        for from_state in sorted(from_states.keys()):
+            transitions_list = from_states[from_state]
+            for symbol, to_state in sorted(transitions_list):
+                print(f"  {from_state} --({symbol})--> {to_state}")
+
+    def parse(self, input_string):
+        """Разбор строки по диаграмме состояний"""
+        if not self.start_state:
+            return False
+
+        current_state = self.start_state
+        path = [current_state]
+
+        for i, symbol in enumerate(input_string):
+            if (current_state, symbol) in self.transitions:
+                current_state = self.transitions[(current_state, symbol)]
+                path.append(current_state)
+            else:
+                # Нет перехода - отклонить
+                return False
+
+        # Проверяем, что закончили в финальном состоянии
+        if current_state in self.final_states:
+            return {"accepted": True, "path": path}
+        else:
+            return False
+
+    def draw_state_diagram_svg(self, filename="state_diagram.svg", layout_hints=None):
+        """
+        Визуализация диаграммы состояний через svgwrite (SVG), без Graphviz/Matplotlib.
+        Схема «как в методичке»: старт слева, финалы справа (двойной круг),
+        центральная вертикальная пара, петли сверху, объединение меток u→v.
+        """
+        import math
+        import svgwrite
+
+        layout_hints = layout_hints or {}
+
+        # ---------- утилиты ----------
+        def norm_label(sym):
+            s = ("" if sym is None else str(sym)).strip()
+            return None if s in {"", "ε", "eps", "epsilon"} else s
+
+        # группировка меток и петель
+        grouped, loops = {}, {}
+        for (u, a), v in self.transitions.items():
+            na = norm_label(a)
+            if u == v:
+                if na is not None:
+                    loops.setdefault(u, set()).add(na)
+                else:
+                    loops.setdefault(u, set())
+            else:
+                if na is None:
+                    continue
+                grouped.setdefault((u, v), set()).add(na)
+
+        states = sorted(self.states)
+
+        # ---------- выбор «ядра» (взаимные рёбра) ----------
+        def mutual_weight(x, y):
+            return len(grouped.get((x, y), set())) + len(grouped.get((y, x), set()))
+
+        core_pair, best_w = None, -1
+        for i in range(len(states)):
+            for j in range(i + 1, len(states)):
+                w = mutual_weight(states[i], states[j])
+                if w > best_w:
+                    best_w, core_pair = w, (states[i], states[j]) if w > 0 else None
+
+        # ---------- координаты в «условных единицах» ----------
+        pos = {}
+
+        def setp(name, xy):
+            if name in self.states and name not in pos:
+                pos[name] = xy
+
+        start = self.start_state
+        finals = sorted(s for s in self.final_states if s in self.states)
+        er_name = next((s for s in self.states if s in {"ER", "ERR", "ERROR"}), None)
+        s_name = next((s for s in finals if s in {"S", "Σ", "ACCEPT", "OK"}), finals[0] if finals else None)
+
+        if start: setp(start, (-2.2, 0.0))
+        if s_name: setp(s_name, (2.6, 0.0))
+        if er_name: setp(er_name, (-1.4, -1.0))
+        if core_pair:
+            u, v = core_pair
+            setp(u, (0.0, 0.9))
+            setp(v, (0.0, -0.9))
+
+        remaining = [s for s in states if s not in pos]
+        x_slots = [-1.0, -0.3, 0.3, 1.0, 1.8]
+        for i, s in enumerate(remaining):
+            x = x_slots[min(i, len(x_slots) - 1)]
+            y = 0.0
+            pos[s] = (x, y)
+
+        # переопределения пользователя — в конце
+        for k, xy in (layout_hints or {}).items():
+            pos[k] = xy
+
+        # ---------- масштаб и стиль ----------
+        unit = 140.0  # 1 условная единица = 140 px
+        R = 0.22 * unit  # радиус узла
+        pad = 1.2 * unit
+        xs = [x for x, y in pos.values()]
+        ys = [y for x, y in pos.values()]
+        minx, maxx = min(xs) - 1.2, max(xs) + 1.2
+        miny, maxy = min(ys) - 1.2, max(ys) + 1.2
+        width = (maxx - minx) * unit + pad
+        height = (maxy - miny) * unit + pad
+
+        def U(x, y):  # преобразование в пиксели
+            return ((x - minx) * unit + pad / 2, height - ((y - miny) * unit + pad / 2))
+
+        dwg = svgwrite.Drawing(filename=filename, size=(width, height), profile='full')
+
+        # маркеры стрелок
+        marker_arrow = dwg.marker(insert=(6, 3), size=(6, 6), orient="auto")
+        marker_arrow.add(dwg.path(d="M0,0 L0,6 L6,3 z", fill="#546E7A"))
+        dwg.defs.add(marker_arrow)
+
+        marker_start = dwg.marker(insert=(8, 4), size=(8, 8), orient="auto")
+        marker_start.add(dwg.path(d="M0,0 L0,8 L8,4 z", fill="#2E7D32"))
+        dwg.defs.add(marker_start)
+
+        # ---------- узлы ----------
+        for s in states:
+            x, y = U(*pos[s])
+            face, edge, lw = "#E3F2FD", "#1976D2", 3
+            if s == start:
+                face, edge, lw = "#C8E6C9", "#2E7D32", 4
+            if s in self.final_states:
+                face, edge, lw = "#FFECB3", "#F57C00", 4
+            dwg.add(dwg.circle(center=(x, y), r=R, fill=face, stroke=edge, stroke_width=lw))
+            if s in self.final_states:
+                dwg.add(dwg.circle(center=(x, y), r=R * 0.83, fill="none", stroke=edge, stroke_width=3))
+            dwg.add(dwg.text(str(s), insert=(x, y + 5), text_anchor="middle",
+                             font_size=18, font_weight="bold", fill="#263238"))
+
+        # ---------- стартовая стрелка (исправление marker-end) ----------
+        if start in pos:
+            sx, sy = pos[start]
+            src = U(sx - 0.75, sy)
+            dst = U(sx - 0.22, sy)
+            start_line = dwg.line(start=src, end=dst, stroke="#2E7D32", stroke_width=4)
+            start_line['marker-end'] = marker_start.get_funciri()
+            dwg.add(start_line)
+            tpos = U(sx - 1.0, sy)
+            dwg.add(dwg.text("START", insert=tpos, text_anchor="middle",
+                             font_size=14, font_weight="bold", fill="#2E7D32"))
+
+        # ---------- рисование рёбер ----------
+        def add_label(text, px, py):
+            # грубая ширина по числу символов
+            w = max(24, 9 * len(text) + 12);
+            h = 22
+            dwg.add(dwg.rect(insert=(px - w / 2, py - h / 2), size=(w, h),
+                             rx=6, ry=6, fill="white", stroke="#BDBDBD", stroke_width=1))
+            dwg.add(dwg.text(text, insert=(px, py + 5), text_anchor="middle",
+                             font_size=13, font_weight="bold", fill="#D32F2F"))
+
+        def draw_edge(u, v, label, rad=0.0):
+            ux, uy = pos[u];
+            vx, vy = pos[v]
+            sx, sy = U(ux, uy);
+            tx, ty = U(vx, vy)
+            # смещение до края окружности
+            dx, dy = (tx - sx, ty - sy)
+            L = math.hypot(dx, dy) or 1.0
+            sx, sy = (sx + dx / L * R, sy + dy / L * R)
+            tx, ty = (tx - dx / L * R, ty - dy / L * R)
+            # контрольная точка (квадратичная кривая)
+            nx, ny = (-dy / L, dx / L)
+            bend = 80 * rad  # пикселей
+            cx, cy = ((sx + tx) / 2 + nx * bend, (sy + ty) / 2 + ny * bend)
+            path = dwg.path(d=f"M {sx},{sy} Q {cx},{cy} {tx},{ty}",
+                            fill="none", stroke="#546E7A", stroke_width=3)
+            path['marker-end'] = marker_arrow.get_funciri()  # ВАЖНО: FuncIRI для маркера
+            dwg.add(path)
+            # метка
+            lx, ly = ((sx + tx) / 2 + nx * (bend + 18), (sy + ty) / 2 + ny * (bend + 18))
+            add_label(label, lx, ly)
+
+        # петли
+        for s, labels in loops.items():
+            if s not in pos: continue
+            x, y = pos[s]
+            cx, cy = U(x, y)
+            rr = R * 0.95
+            # дуга над узлом
+            loop_path = dwg.path(d=(
+                f"M {cx - rr},{cy - R - rr * 0.2} "
+                f"a {rr},{rr} 0 1,1 {2 * rr},0 "
+                f"a {rr},{rr} 0 1,1 {-2 * rr},0"
+            ), fill="none", stroke="#546E7A", stroke_width=3)
+            loop_path['marker-end'] = marker_arrow.get_funciri()  # корректная привязка маркера
+            dwg.add(loop_path)
+            lab = ", ".join(sorted(labels))
+            if lab:
+                add_label(lab, cx, cy - R - rr - 18)
+
+        # обычные рёбра (с разводкой встречных)
+        for (u, v), labels in grouped.items():
+            lab = ", ".join(sorted(labels))
+            has_back = (v, u) in grouped
+            rad = 0.25 if has_back and u < v else (-0.25 if has_back else (0.2 if pos[v][0] < pos[u][0] else 0.0))
+            draw_edge(u, v, lab, rad=rad)
+
+        # заголовок
+        dwg.add(dwg.text("Диаграмма состояний",
+                         insert=(width / 2, 40), text_anchor="middle",
+                         font_size=22, font_weight="bold", fill="#1A237E"))
+        dwg.save()
+        return filename
+
+    def display_ascii(self):
+        """
+        Компактная ASCII-визуализация: состояния, старт/финалы и переходы,
+        сгруппированные по парам (from -> to) с объединением меток.
+        """
+        print("Диаграмма состояний (ASCII):")
+        print(f"Состояния: {{{', '.join(sorted(self.states))}}}")
+        print(f"Начальное: {self.start_state}")
+        print(f"Финальные: {{{', '.join(sorted(self.final_states))}}}")
+
+        # Группируем переходы
+        grouped = {}
+        for (s, a), t in self.transitions.items():
+            grouped.setdefault((s, t), set()).add(a)
+
+        # Вывод
+        for (s, t), labels in sorted(grouped.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+            lab = ",".join(sorted(labels, key=str))
+            print(f"  {s} --({lab})--> {t}")
+
+
+
+
+
+
+
