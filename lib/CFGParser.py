@@ -1597,7 +1597,33 @@ class StateDiagram:
             lab = ",".join(sorted(labels, key=str))
             print(f"  {s} --({lab})--> {t}")
 
+    # Преобразование ДС -> леволинейная грамматика (исключая ER)
+    def to_left_linear_grammar(self, end_symbol='⊥', error_state='ER', start_nonterminal='S'):
+        nonterminals = {s for s in self.states if s not in {self.start_state, error_state}}
+        terminals = set()
+        productions = {nt: [] for nt in nonterminals}
+        start_symbol = start_nonterminal  # S — принимающее состояние
 
+        for (u, a), v in self.transitions.items():
+            if u == error_state or v == error_state:  # игнорируем ошибки
+                continue
+            terminals.add(a)
+            if u == self.start_state and v in nonterminals:
+                # H --a--> W  => W → a
+                productions.setdefault(v, []).append([a])
+            elif u in nonterminals and v in nonterminals:
+                # V --a--> W  => W → V a
+                productions.setdefault(v, []).append([u, a])
+            elif u in nonterminals and v in self.final_states and a == end_symbol:
+                # V --⊥--> S  => S → V ⊥
+                productions.setdefault(start_symbol, []).append([u, a])
+
+        # Удалим терминалы, не встречающиеся
+        terminals = {t for t in terminals if isinstance(t, str)}
+        return Grammar(nonterminals=nonterminals | {start_symbol},
+                       terminals=terminals,
+                       productions=productions,
+                       start_symbol=start_symbol)
 
 
 
