@@ -75,7 +75,7 @@ def main():
             ds.draw_state_diagram_svg()
 
             section("Разбор требуемых цепочек")
-            tests = ["1011⊥", "10+011⊥", "0–101+1⊥"]
+            tests = ["1011⊥", "10+011⊥", "0-101+1⊥"]
             parsed = []
             for test_str in tests:
                 print(f"\nРазбор цепочки '{test_str}':")
