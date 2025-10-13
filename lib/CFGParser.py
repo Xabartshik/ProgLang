@@ -581,6 +581,172 @@ class Grammar:
 
         return results
 
+    def all_left_derivations_deterministic(
+            self,
+            tokens: list[str],
+            *,
+            time_limit_s: float = 2.0,
+            max_rules: int | None = None,
+            max_stack: int | None = None,
+            max_queue: int = 200_000,
+            prefer_prefix: bool = True,
+    ):
+        """
+        Возвращает все левые выводы для tokens как списки правил (A, prod),
+        но агрессивно отсекáет недостижимые/слишком длинные ветви.
+        """
+
+        import math
+        import time
+        from collections import deque
+
+        # ---- грамматические вспомогательные множества/значения ----
+        EPSILON_SYMBOLS = {getattr(self, "epsilon", "ε"), "ε", ""}
+
+        def is_epsilon_symbol(sym: str) -> bool:
+            return sym in EPSILON_SYMBOLS
+
+        # продукция может быть [] (epsilon) или содержать явный символ ε — фильтруем при пуше
+        def push_prod(stack: list[str], prod: list[str]) -> list[str]:
+            # обратный порядок, исключая ε
+            tail = [s for s in reversed(prod) if not is_epsilon_symbol(s)]
+            return stack[:-1] + tail
+
+        # ---- предвычисление m(X): минимального числа терминалов из X ----
+        # m(t) = 1 для терминала t, m(ε) = 0, m(A) = min по A->α суммы m(x) для x∈α
+        INF = 10 ** 9
+        m: dict[str, int] = {}
+
+        for t in self.terminals:
+            m[t] = 1
+        for nt in self.nonterminals:
+            m[nt] = INF
+
+        changed = True
+        while changed:
+            changed = False
+            for A in self.nonterminals:
+                for prod in self.productions.get(A, []):
+                    if not prod:  # пустая продукция
+                        cand = 0
+                    else:
+                        cand = 0
+                        ok = True
+                        for s in prod:
+                            if is_epsilon_symbol(s):
+                                continue
+                            if s not in m:
+                                # неизвестные символы считаем непроизводимыми
+                                ok = False
+                                break
+                            if m[s] >= INF:
+                                ok = False
+                                break
+                            cand += m[s]
+                        if not ok:
+                            continue
+                    if cand < m[A]:
+                        m[A] = cand
+                        changed = True
+
+        def stack_min_yield(stack: list[str]) -> int:
+            total = 0
+            for s in stack:
+                if is_epsilon_symbol(s):
+                    continue
+                total += m.get(s, INF)
+                if total >= INF:
+                    return INF
+            return total
+
+        n = len(tokens)
+        if max_rules is None:
+            # эвристический потолок: разрешим ~4n+32 замен, чтобы не уходить в длинные ε‑циклы
+            max_rules = 4 * n + 32
+        if max_stack is None:
+            # стек не должен расти существенно сверх n, учитывая промежуточные нетерминалы
+            max_stack = 2 * n + 16
+
+        start_time = time.monotonic()
+
+        results: list[list[tuple[str, list[str]]]] = []
+        queue: deque[tuple[int, list[str], list[tuple[str, list[str]]]]] = deque()
+        queue.append((0, [self.start_symbol], []))
+
+        # (pos, tuple(stack)) -> наименьшая длина пути (по числу правил), которой уже достигали это состояние
+        seen_best: dict[tuple[int, tuple[str, ...]], int] = {}
+
+        while queue:
+            # лимит на размер очереди
+            if len(queue) > max_queue:
+                break
+
+            # лимит времени
+            if time.monotonic() - start_time > time_limit_s:
+                break
+
+            pos, stack, rule_path = queue.popleft()
+
+            # приёмка
+            if not stack:
+                if pos == n:
+                    results.append(rule_path[:])
+                continue
+
+            # жёсткие лимиты
+            if len(rule_path) > max_rules:
+                continue
+            if len(stack) > max_stack:
+                continue
+
+            # оценка по минимальной длине
+            if stack_min_yield(stack) > (n - pos):
+                continue
+
+            key = (pos, tuple(stack))
+            prev_best = seen_best.get(key)
+            # if prev_best is not None and prev_best <= len(rule_path):
+            #     # уже были здесь не хуже по числу замен — отсечь цикл/повтор
+            #     continue
+            # seen_best[key] = len(rule_path)
+            prev_best = seen_best.get(key)
+            if prev_best is not None and len(rule_path) > prev_best:
+                continue
+            # фиксируем лучший найденный «кратчайший» путь, но не запрещаем такие же по длине
+            if prev_best is None or len(rule_path) < prev_best:
+                seen_best[key] = len(rule_path)
+
+            top = stack[-1]
+
+            # терминал на вершине — пытаемся сканировать
+            if top in self.terminals:
+                if pos < n and top == tokens[pos]:
+                    queue.append((pos + 1, stack[:-1], rule_path))
+                continue
+
+            # нетерминал — перебираем продукции
+            if top in self.nonterminals:
+                prods = self.productions.get(top, [])
+                for prod in prods:
+                    # префиксная фильтрация: если первый символ продукции — терминал,
+                    # он должен совпасть со следующим токеном
+                    if prefer_prefix and prod:
+                        first_sym = prod[0]
+                        if (first_sym in self.terminals) and (pos < n) and (first_sym != tokens[pos]) and (
+                        not is_epsilon_symbol(first_sym)):
+                            continue
+
+                    new_stack = push_prod(stack, prod)
+                    # быстрый прюнинг перед постановкой в очередь
+                    if len(new_stack) > max_stack:
+                        continue
+                    if stack_min_yield(new_stack) > (n - pos):
+                        continue
+
+                    queue.append((pos, new_stack, rule_path + [(top, prod)]))
+
+        return results
+
     def to_nfa(self):
         if not self.is_right_linear():
             raise ValueError("Грамматика должна быть право-линейной для конвертации в NFA")

@@ -227,7 +227,7 @@ def main():
     g9 = Grammar(nonterminals_9, terminals_9, productions_9, start_symbol_9)
 
     section("Левые выводы и деревья")
-    derivations = g9.all_left_derivations(tokens_9)
+    derivations = g9.all_left_derivations_deterministic(tokens_9, time_limit_s=10)
     for idx, rule_path in enumerate(derivations, 1):
         sub(f"Вывод {idx}")
         forms = reconstruct_derivation(g9, rule_path, tokens_9)
