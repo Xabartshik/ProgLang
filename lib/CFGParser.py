@@ -1,7 +1,10 @@
 from collections import defaultdict, deque
+from typing import Dict, Tuple, Set
 
 import numpy as np
 from graphviz import Digraph
+
+from lib.NFADS import StateDiagramNFA
 
 
 class DFA:
@@ -541,6 +544,144 @@ class Grammar:
         g_right = g_rev.mirror_productions()
 
         return g_right
+
+    def build_state_diagram_nfa(self):
+        """
+        Построить недетерминированную диаграмму состояний для леволинейной грамматики.
+
+        Алгоритм (леволинейная: W → t | W → V t):
+        1) Добавляем состояния для всех нетерминалов + специальное начальное состояние H
+        2) Для W → t добавляем дугу H --t--> W (может быть несколько для одного t)
+        3) Для W → V t добавляем дугу V --t--> W (может быть несколько переходов)
+        4) Стартовый символ грамматики делаем конечным состоянием
+
+        Поддерживает недетерминированность: из одного состояния по одному символу
+        могут быть переходы в несколько различных состояний.
+        """
+        if not self.is_left_linear():
+            raise ValueError("Диаграмма состояний строится только для леволинейных грамматик")
+
+        ds = StateDiagramNFA()  # Используем недетерминированную версию
+
+        # 1) Состояния: H и все нетерминалы
+        H = 'H'
+        ds.set_start_state(H)
+        for nt in sorted(self.nonterminals):
+            ds.add_state(nt)
+
+        # 4) Стартовый символ — конечное состояние
+        ds.add_final_state(self.start_symbol)
+
+        # 2) и 3) Переходы (теперь множественные)
+        for W, rhslist in self.productions.items():
+            for rhs in rhslist:
+                # ε-продукций здесь нет, но оставим задел
+                if len(rhs) == 0:
+                    # При наличии W → ε обычно отмечают W как конечное
+                    if W == self.start_symbol:
+                        ds.add_final_state(W)
+                    continue
+
+                # W → t
+                if len(rhs) == 1 and rhs[0] in self.terminals:
+                    t = rhs[0]
+                    # Дуга H --t--> W (может быть недетерминизм!)
+                    ds.add_transition(H, t, W)
+                    continue
+
+                # W → V t
+                if len(rhs) == 2 and rhs[0] in self.nonterminals and rhs[1] in self.terminals:
+                    V, t = rhs[0], rhs[1]
+                    # Дуга V --t--> W (может быть недетерминизм!)
+                    ds.add_transition(V, t, W)
+                    continue
+
+                # Если попалось что-то иное — это не леволинейная форма
+                raise ValueError(f"Недопустимое леволинейное правило: {W} → {''.join(rhs)}")
+
+        return ds
+
+    def parse_nfa(self, input_string):
+        """
+        Разбор строки по недетерминированной диаграмме состояний.
+        Использует алгоритм обхода в ширину для исследования всех возможных путей.
+
+        Возвращает:
+        - accepted: True если хотя бы один путь приводит к финальному состоянию
+        - paths: список всех успешных путей (если найдены)
+        - reason: причина отклонения (если не принято)
+        """
+        if not self.is_left_linear():
+            raise ValueError("Разбор доступен только для леволинейных грамматик")
+
+        if not input_string:
+            return {"accepted": False, "reason": "Пустая строка"}
+
+        # Строим NFA диаграмму
+        nfa = self.build_state_diagram_nfa()
+
+        # Используем BFS для обхода всех возможных путей
+        from collections import deque
+
+        # Очередь: (текущая позиция в строке, текущее состояние, путь)
+        queue = deque([(0, nfa.start_state, [nfa.start_state])])
+        visited = set()  # (позиция, состояние)
+        successful_paths = []
+
+        # Шаг 1: обработка первого символа
+        first_symbol = input_string[0]
+        initial_states = nfa.transitions.get((nfa.start_state, first_symbol), set())
+
+        if not initial_states:
+            return {
+                "accepted": False,
+                "reason": f"Нет переходов из начального состояния по символу '{first_symbol}'"
+            }
+
+        # Инициализируем очередь всеми возможными начальными переходами
+        queue = deque()
+        for state in initial_states:
+            queue.append((1, state, [nfa.start_state, (first_symbol, state)]))
+
+        # Обрабатываем остальные символы
+        while queue:
+            pos, current_state, path = queue.popleft()
+
+            # Избегаем повторной обработки одного и того же состояния на той же позиции
+            state_key = (pos, current_state)
+            if state_key in visited:
+                continue
+            visited.add(state_key)
+
+            # Если обработали всю строку
+            if pos == len(input_string):
+                # Проверяем, является ли текущее состояние финальным
+                if current_state in nfa.final_states:
+                    successful_paths.append(path[:])
+                continue
+
+            # Берем следующий символ
+            next_symbol = input_string[pos]
+
+            # Получаем все возможные переходы из текущего состояния
+            next_states = nfa.transitions.get((current_state, next_symbol), set())
+
+            # Добавляем все возможные переходы в очередь
+            for next_state in next_states:
+                new_path = path + [(next_symbol, next_state)]
+                queue.append((pos + 1, next_state, new_path))
+
+        if successful_paths:
+            return {
+                "accepted": True,
+                "paths": successful_paths,
+                "num_paths": len(successful_paths)
+            }
+        else:
+            return {
+                "accepted": False,
+                "reason": "Ни один путь не привел к финальному состоянию"
+            }
 
     def all_left_derivations(self, tokens: list[str]):
         """
@@ -1168,40 +1309,53 @@ class Grammar:
 
     def build_state_diagram(self):
         """
-        Построить диаграмму состояний для леволинейной грамматики
+        Построить диаграмму состояний для леволинейной грамматики.
 
-        Алгоритм из методического пособия:
-        1. Создаём состояния для каждого нетерминала + начальное состояние H
-        2. Для правил W → t: дуга H → W с меткой t
-        3. Для правил W → Vt: дуга V → W с меткой t
+        Алгоритм (леволинейная: W → t | W → V t):
+        1) Добавляем состояния для всех нетерминалов + специальное начальное состояние H
+        2) Для W → t добавляем дугу H --t--> W
+        3) Для W → V t добавляем дугу V --t--> W
+        4) Стартовый символ грамматики делаем конечным состоянием
         """
         if not self.is_left_linear():
             raise ValueError("Диаграмма состояний строится только для леволинейных грамматик")
 
         ds = StateDiagram()
 
-        # Создаём состояния
-        start_state = 'H'  # Начальное состояние
-        ds.set_start_state(start_state)
-
-        for nt in self.nonterminals:
+        # 1) Состояния: H и все нетерминалы
+        H = 'H'
+        ds.set_start_state(H)
+        for nt in sorted(self.nonterminals):
             ds.add_state(nt)
 
-        # Начальный символ грамматики является финальным состоянием
+        # 4) Стартовый символ — конечное состояние
         ds.add_final_state(self.start_symbol)
 
-        # Анализируем продукции и строим переходы
-        for lhs, rhslist in self.productions.items():
+        # 2) и 3) Переходы
+        for W, rhslist in self.productions.items():
             for rhs in rhslist:
-                if len(rhs) == 1 and rhs[0] in self.terminals:
-                    # Правило вида W → t
-                    # Дуга H → W с меткой t
-                    ds.add_transition(start_state, rhs[0], lhs)
+                # ε-продукций здесь нет, но оставим задел
+                if len(rhs) == 0:
+                    # При наличии W → ε обычно отмечают W как конечное
+                    # if W == self.start_symbol: ds.add_final_state(W)
+                    continue
 
-                elif len(rhs) == 2 and rhs[0] in self.nonterminals and rhs[1] in self.terminals:
-                    # Правило вида W → Vt
-                    # Дуга V → W с меткой t
-                    ds.add_transition(rhs[0], rhs[1], lhs)
+                # W → t
+                if len(rhs) == 1 and rhs[0] in self.terminals:
+                    t = rhs[0]
+                    # Дуга H --t--> W
+                    ds.add_transition(H, t, W)
+                    continue
+
+                # W → V t
+                if len(rhs) == 2 and rhs[0] in self.nonterminals and rhs[1] in self.terminals:
+                    V, t = rhs[0], rhs[1]
+                    # Дуга V --t--> W
+                    ds.add_transition(V, t, W)
+                    continue
+
+                # Если попалось что-то иное — это не леволинейная форма
+                raise ValueError(f"Недопустимое леволинейное правило: {W} → {''.join(rhs)}")
 
         return ds
 
@@ -1488,29 +1642,26 @@ class StateDiagram:
 
     def __init__(self):
         self.states = set()
-        self.start_state = None
-        self.final_states = set()
-        self.transitions = {}  # (state, symbol) -> next_state
+        self.start_states: Set[str] = set()
+        self.final_states: Set[str] = set()
+        self.transitions: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
 
-    def add_state(self, state):
-        """Добавить состояние"""
+
+    def add_state(self, state: str):
         self.states.add(state)
 
-    def set_start_state(self, state):
-        """Установить начальное состояние"""
-        self.start_state = state
-        self.states.add(state)
+    def set_start(self, state: str):
+        self.add_state(state)
+        self.start_states.add(state)
 
-    def add_final_state(self, state):
-        """Добавить финальное состояние"""
+    def add_final(self, state: str):
+        self.add_state(state)
         self.final_states.add(state)
-        self.states.add(state)
 
-    def add_transition(self, from_state, symbol, to_state):
-        """Добавить переход"""
-        self.states.add(from_state)
-        self.states.add(to_state)
-        self.transitions[(from_state, symbol)] = to_state
+    def add_transition(self, from_state: str, symbol: str, to_state: str):
+        self.add_state(from_state)
+        self.add_state(to_state)
+        self.transitions[from_state][symbol].add(to_state)
 
     def display(self):
         """Вывести диаграмму состояний"""
